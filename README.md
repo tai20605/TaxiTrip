@@ -17,7 +17,7 @@ The pipeline is designed to:
 ---
 ## Architecture
 
-![Architecture](architecture.png)
+<img width="1016" height="652" alt="architecture" src="https://github.com/user-attachments/assets/ea22108b-168a-4866-aedc-de7a046e5f3c" />
 
 ---
 
@@ -133,7 +133,8 @@ docker compose up -d
 
 ## Dashboard Overview
 
-![Dashboard](dashboard.png)
+<img width="1887" height="862" alt="dashboard" src="https://github.com/user-attachments/assets/f865bbb4-729b-4513-a1f9-174eac6c1b28" />
+
 
 
 
