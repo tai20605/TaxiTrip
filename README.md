@@ -6,13 +6,13 @@ A production-grade streaming analytics pipeline simulating real-time Uber & Lyft
 ## Overview
 The pipeline is designed to:
 
-Extract real-time rideshare event streams from Apache Kafka using Python.
+- Extract real-time rideshare event streams from Apache Kafka using Python.
 
-Store the raw data as incremental Parquet files in a Google Cloud Storage (GCS) bucket via PySpark Streaming.
+- Store the raw data as incremental Parquet files in a Google Cloud Storage (GCS) bucket via PySpark Streaming.
 
-Transform and model the data using dbt Core and Google BigQuery.
+- Transform and model the data using dbt Core and Google BigQuery.
 
-Load the transformed metrics into a Data Quality Mart for real-time visualization and observability on Grafana.
+- Load the transformed metrics into a Data Quality Mart for real-time visualization and observability on Grafana.
 
 ---
 ## Architecture
@@ -92,7 +92,7 @@ Taxitrip/
 - GCP project with BigQuery + GCS enabled
 - Service account key (`credentials/gcp-key.json`)
 
-### 1. Clone & configure
+### 1. Clone & Configure Environment
 
 ```bash
 git clone https://github.com/<your-username>/Taxitrip.git
@@ -100,28 +100,34 @@ cd Taxitrip
 cp .env.example .env
 ```
 
-### 2. Provision GCP infrastructure
+### 2. Setup Google Cloud Credentials
+
+```bash
+mkdir credentials
+# Move your downloaded GCP service account key here and rename it
+mv /path/to/your/downloaded-key.json ./credentials/service-account.json
+```
+
+### 3. Provision GCP Infrastructure
 
 ```bash
 cd terraform
-terraform init && terraform apply 
-# Sau khi docker-compose up -d xong, terraform apply 1 lần nữa
+terraform init
+terraform apply
+cd ..
 ```
 
-### 3. Start services
+### 4. Launch the Streaming Platform
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-### 4. Open Airflow
+### 5. Access the Interfaces
 
-Navigate to `http://localhost:8080`
+- Apache Airflow UI: Go to http://localhost:8085
 
-
-### 5. Open Grafana
-
-Navigate to `http://localhost:3000`
+- Grafana Dashboard: Go to http://localhost:3000
 
 ---
 
