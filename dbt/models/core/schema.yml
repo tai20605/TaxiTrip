@@ -1,0 +1,178 @@
+version: 2
+
+models:
+  # ─── DIMENSION: CABS ──────────────────────────────────────────────────────
+  - name: dim_cabs
+    description: "Dimension table for cab providers and service tiers."
+    columns:
+      - name: cab_key
+        description: "MD5 surrogate key."
+        tests:
+          - not_null:
+              severity: error
+          - unique:
+              severity: error
+      - name: cab_provider
+        tests:
+          - not_null:
+              severity: warn
+          - accepted_values:
+              values: ["Uber", "Lyft"]
+              severity: warn
+      - name: cab_tier
+        tests:
+          - not_null:
+              severity: warn
+
+  # ─── DIMENSION: DATETIME ─────────────────────────────────────────────────
+  - name: dim_datetime
+    description: "Exploded date/time dimension derived from trip_datetime."
+    columns:
+      - name: datetime_key
+        tests:
+          - not_null:
+              severity: error
+          - unique:
+              severity: error
+      - name: hour
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "between 0 and 23"
+              severity: warn
+      - name: month
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "between 1 and 12"
+              severity: warn
+      - name: day_of_week
+        tests:
+          - accepted_values:
+              values: ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+              severity: warn
+
+  # ─── DIMENSION: LOCATIONS ────────────────────────────────────────────────
+  - name: dim_locations
+    description: "Unique Boston neighborhoods with averaged lat/lng."
+    columns:
+      - name: location_key
+        tests:
+          - not_null:
+              severity: error
+          - unique:
+              severity: error
+      - name: neighborhood
+        tests:
+          - not_null:
+              severity: error
+      - name: latitude
+        tests:
+          - not_null:
+              severity: warn
+          - dbt_utils.expression_is_true:
+              expression: "between 41.0 and 43.0"
+              severity: warn
+      - name: longitude
+        tests:
+          - not_null:
+              severity: warn
+          - dbt_utils.expression_is_true:
+              expression: "between -72.0 and -70.0"
+              severity: warn
+
+  # ─── DIMENSION: WEATHER ──────────────────────────────────────────────────
+  - name: dim_weather
+    description: "Unique weather condition combinations."
+    columns:
+      - name: weather_key
+        tests:
+          - not_null:
+              severity: error
+          - unique:
+              severity: error
+
+  # ─── FACT: TRIPS ─────────────────────────────────────────────────────────
+  - name: fact_trips
+    description: >
+      Central fact table joining trip events with dimension surrogate keys.
+      All monetary and distance fields must be non-null and positive.
+    columns:
+      - name: trip_id
+        tests:
+          - not_null:
+              severity: error
+          - unique:
+              severity: error
+
+      # Referential integrity: FK → dim_cabs
+      - name: cab_key
+        tests:
+          - not_null:
+              severity: error
+          - relationships:
+              to: ref('dim_cabs')
+              field: cab_key
+              severity: error
+
+      # Referential integrity: FK → dim_locations
+      - name: source_location_key
+        tests:
+          - not_null:
+              severity: error
+          - relationships:
+              to: ref('dim_locations')
+              field: location_key
+              severity: error
+
+      - name: destination_location_key
+        tests:
+          - not_null:
+              severity: error
+          - relationships:
+              to: ref('dim_locations')
+              field: location_key
+              severity: error
+
+      # Referential integrity: FK → dim_datetime
+      - name: datetime_key
+        tests:
+          - not_null:
+              severity: error
+          - relationships:
+              to: ref('dim_datetime')
+              field: datetime_key
+              severity: error
+
+      # Referential integrity: FK → dim_weather
+      - name: weather_key
+        tests:
+          - not_null:
+              severity: warn
+          - relationships:
+              to: ref('dim_weather')
+              field: weather_key
+              severity: warn
+
+      # Business metric validations
+      - name: price
+        tests:
+          - not_null:
+              severity: warn
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+              severity: warn
+
+      - name: distance_miles
+        tests:
+          - not_null:
+              severity: warn
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+              severity: warn
+
+      - name: surge_multiplier
+        tests:
+          - not_null:
+              severity: warn
+          - dbt_utils.expression_is_true:
+              expression: ">= 1.0"
+              severity: warn

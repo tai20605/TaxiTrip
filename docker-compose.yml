@@ -1,0 +1,309 @@
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9.2
+  env_file: .env
+  environment: &airflow-common-env
+    _PIP_ADDITIONAL_REQUIREMENTS: "dbt-bigquery==1.7.0 kafka-python-ng"
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    AIRFLOW__WEBSERVER__SECRET_KEY: 'boston-rideshare-secret-2024'
+    GOOGLE_APPLICATION_CREDENTIALS: /opt/gcp/service-account.json
+    GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+    GCS_BUCKET: ${GCS_BUCKET}
+    BQ_DATASET: ${BQ_DATASET}
+    KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/logs:/opt/airflow/logs
+    - ./airflow/plugins:/opt/airflow/plugins
+    - ./airflow/requirements.txt:/requirements.txt:ro
+    - ${HOST_GCP_KEY_PATH}:/opt/gcp/service-account.json:ro
+    - ./dbt:/opt/airflow/dbt
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on: &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
+  networks:
+    - rideshare_net
+
+services:
+
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: boston_kafka
+    hostname: kafka
+    ports:
+      - "9092:9092" 
+      - "9094:9094" 
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_RETENTION_BYTES: 2147483648
+      KAFKA_LOG_SEGMENT_BYTES: 536870912
+      KAFKA_MESSAGE_MAX_BYTES: 10485760
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+      - ./kafka:/opt/kafka_topics:ro
+    healthcheck:
+      test: [ "CMD", "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list" ]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+    networks:
+      - rideshare_net
+    restart: unless-stopped
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: boston_kafka_ui
+    hostname: kafka-ui
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: boston-rideshare
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      DYNAMIC_CONFIG_ENABLED: "true"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - rideshare_net
+    restart: unless-stopped
+
+  producer:
+    build:
+      context: ./kafka
+      dockerfile: Dockerfile
+    container_name: boston_producer
+    hostname: producer
+    env_file: .env
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - rideshare_net
+    restart: unless-stopped
+
+  spark-master:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    image: boston-spark:3.5.1
+    container_name: boston_spark_master
+    hostname: spark-master
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master --host spark-master --port 7077 --webui-port 8082 &
+        echo "Waiting for Spark Master and Worker to initialize..."
+        sleep 12
+        echo "Submitting streaming job..."
+        /opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/spark/jobs/stream_rideshare.py &
+        wait -n
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+      GOOGLE_APPLICATION_CREDENTIALS: /opt/gcp/service-account.json
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID}
+      GCS_BUCKET: ${GCS_BUCKET}
+      BQ_DATASET: ${BQ_DATASET}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+    ports:
+      - "8082:8082" 
+      - "7077:7077" 
+    volumes:
+      - ./spark/jobs:/opt/spark/jobs
+      - ./data:/opt/spark/data:ro
+      - ${HOST_GCP_KEY_PATH}:/opt/gcp/service-account.json:ro
+      - spark_checkpoints:/tmp/spark-checkpoints
+      - spark_events:/tmp/spark-events
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -sf http://localhost:8082/ > /dev/null || exit 1" ]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - rideshare_net
+    restart: unless-stopped
+
+  spark-worker:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    image: boston-spark:3.5.1
+    container_name: boston_spark_worker
+    hostname: spark-worker
+    entrypoint: []
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.worker.Worker
+      - --webui-port
+      - "8083"
+      - spark://spark-master:7077
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+      SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY}
+      SPARK_WORKER_CORES: ${SPARK_WORKER_CORES}
+      GOOGLE_APPLICATION_CREDENTIALS: /opt/gcp/service-account.json
+    ports:
+      - "8083:8083" 
+    volumes:
+      - ./spark/jobs:/opt/spark/jobs
+      - ./data:/opt/spark/data:ro
+      - ${HOST_GCP_KEY_PATH}:/opt/gcp/service-account.json:ro
+      - spark_checkpoints:/tmp/spark-checkpoints
+      - spark_events:/tmp/spark-events
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    networks:
+      - rideshare_net
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: boston_postgres
+    hostname: postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "airflow", "-d", "airflow" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - rideshare_net
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: boston_airflow_init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        echo "=== Installing extra providers ==="
+        pip install --no-cache-dir -r /requirements.txt -q
+
+        echo "=== Running DB migration ==="
+        airflow db migrate
+
+        echo "=== Creating admin user ==="
+        airflow users create \
+          --username "${_AIRFLOW_WWW_USER_USERNAME}" \
+          --password "${_AIRFLOW_WWW_USER_PASSWORD}" \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@boston-rideshare.local 2>/dev/null \
+          || echo "  (user already exists, skipping)"
+
+        echo "=== Airflow init complete ==="
+    environment:
+      <<: *airflow-common-env
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: boston_airflow_webserver
+    command: webserver
+    ports:
+      - "8085:8080"
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 90s
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: boston_airflow_scheduler
+    command: scheduler
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:8974/health" ]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 90s
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  grafana:
+    build:
+      context: ./grafana
+      dockerfile: Dockerfile
+    container_name: boston_grafana
+    hostname: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${_AIRFLOW_WWW_USER_USERNAME}
+      GF_SECURITY_ADMIN_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD}
+      GF_INSTALL_PLUGINS: grafana-bigquery-datasource
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/rideshare_streaming.json
+      GF_USERS_DEFAULT_THEME: dark
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GOOGLE_APPLICATION_CREDENTIALS: /opt/gcp/service-account.json
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+      - ${HOST_GCP_KEY_PATH}:/opt/gcp/service-account.json:ro
+    networks:
+      - rideshare_net
+    restart: unless-stopped
+
+volumes:
+  kafka_data:
+    driver: local
+  postgres_data:
+    driver: local
+  spark_checkpoints:
+    driver: local
+  spark_events:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  rideshare_net:
+    name: rideshare_net
+    driver: bridge

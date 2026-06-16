@@ -1,0 +1,67 @@
+# ================================================================
+# .gitignore - Boston Rideshare Analytics Platform
+# ================================================================
+
+# ── Credentials (NEVER commit!) ──────────────────────────────────
+credentials/
+*.json
+!package.json
+
+# ── Environment ──────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Large data files ─────────────────────────────────────────────
+data/*.csv
+data/*.parquet
+data/*.gz
+
+# ── Python ───────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+env/
+venv/
+
+# ── dbt ──────────────────────────────────────────────────────────
+dbt/target/
+dbt/.user.yml
+dbt/logs/
+dbt/dbt_packages/
+
+# ── Terraform ────────────────────────────────────────────────────
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.tfvars
+terraform/override.tf
+
+# ── Airflow ──────────────────────────────────────────────────────
+airflow/logs/
+
+# ── Docker ───────────────────────────────────────────────────────
+spark/warehouse/
+
+# ── IDE ──────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*.DS_Store
+
+# ── Logs ─────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Temp ─────────────────────────────────────────────────────────
+tmp/
+temp/
+doc_content*.txt

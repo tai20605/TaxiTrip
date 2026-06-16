@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: gcs_bronze
+    database: "{{ env_var('GCP_PROJECT_ID', 'boston-rideshare-analytics') }}"
+    schema: rideshare_dw
+    tables:
+      - name: external_rideshare_events
+        description: "External BigQuery table pointing to raw GCS Bronze rideshare events."

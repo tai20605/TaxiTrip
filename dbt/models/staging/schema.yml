@@ -1,0 +1,138 @@
+version: 2
+
+models:
+  - name: stg_rideshare_events
+    description: >
+      Staging layer: raw Kafka events parsed from JSON, with metadata columns.
+      This is the single source of truth before dimensional modelling.
+
+    columns:
+      # ─── PRIMARY KEY ────────────────────────────────────────────────────────
+      - name: trip_id
+        description: "Unique identifier for each rideshare trip."
+        tests:
+          - not_null:
+              severity: error
+              config:
+                error_if: ">0"
+          - unique:
+              severity: error
+
+      # ─── COMPLETENESS – required business fields ─────────────────────────
+      - name: cab_provider
+        description: "Rideshare provider: Uber or Lyft."
+        tests:
+          - not_null:
+              severity: warn
+          - accepted_values:
+              values: ["Uber", "Lyft"]
+              severity: warn
+
+      - name: cab_tier
+        description: "Service tier (e.g. UberX, Lux Black, LYFT_XL)."
+        tests:
+          - not_null:
+              severity: warn
+
+      - name: source_neighborhood
+        description: "Origin neighborhood."
+        tests:
+          - not_null:
+              severity: warn
+
+      - name: destination_neighborhood
+        description: "Destination neighborhood."
+        tests:
+          - not_null:
+              severity: warn
+
+      - name: price
+        description: "Trip fare in USD."
+        tests:
+          - not_null:
+              severity: warn
+
+      - name: distance_miles
+        description: "Trip distance in miles."
+        tests:
+          - not_null:
+              severity: warn
+
+      - name: surge_multiplier
+        description: "Dynamic pricing multiplier; must be >= 1.0."
+        tests:
+          - not_null:
+              severity: warn
+          - dbt_utils.expression_is_true:
+              expression: ">= 1.0"
+              severity: warn
+
+      # ─── VALIDITY – numeric range checks ─────────────────────────────────
+      - name: trip_hour
+        description: "Hour of the day (0-23)."
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "between 0 and 23"
+              severity: warn
+
+      - name: trip_day
+        description: "Day of month (1-31)."
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "between 1 and 31"
+              severity: warn
+
+      - name: trip_month
+        description: "Month of year (1-12)."
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "between 1 and 12"
+              severity: warn
+
+      - name: temperature
+        description: "Ambient temperature in Fahrenheit."
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "between -50 and 150"
+              severity: warn
+
+      - name: humidity
+        description: "Relative humidity (0.0 – 1.0)."
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "between 0.0 and 1.0"
+              severity: warn
+
+      - name: precip_probability
+        description: "Precipitation probability (0.0 – 1.0)."
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "between 0.0 and 1.0"
+              severity: warn
+
+      - name: latitude
+        description: "Pickup latitude. Boston area: ~42.3."
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "between 41.0 and 43.0"
+              severity: warn
+
+      - name: longitude
+        description: "Pickup longitude. Boston area: ~-71.0."
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "between -72.0 and -70.0"
+              severity: warn
+
+      # ─── TIMELINESS metadata ─────────────────────────────────────────────
+      - name: kafka_timestamp
+        description: "Timestamp when Kafka received the message."
+        tests:
+          - not_null:
+              severity: warn
+
+      - name: ingestion_time
+        description: "Timestamp when Spark wrote the record to Bronze."
+        tests:
+          - not_null:
+              severity: warn

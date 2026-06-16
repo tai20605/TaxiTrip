@@ -1,0 +1,40 @@
+name: 'boston_rideshare'
+version: '1.0.0'
+config-version: 2
+
+profile: 'boston_rideshare'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# ── Package dependencies ───────────────────────────────────────────────────
+# Run `dbt deps` to install before first use.
+# packages.yml must exist at project root (see packages.yml).
+
+models:
+  boston_rideshare:
+    staging:
+      +materialized: view
+    core:
+      +materialized: table
+    marts:
+      +materialized: view
+      mart_data_quality_metrics:
+        +materialized: table   # persist DQ metrics for dashboard queries
+
+# ── Test severity configuration ────────────────────────────────────────────
+# By default, ERROR tests fail the pipeline; WARN tests log but continue.
+# Singular tests in /tests/ inherit these unless overridden in the SQL file.
+tests:
+  boston_rideshare:
+    +severity: warn          # default; individual tests override with 'error'
+    +store_failures: true    # write failing rows to BigQuery for audit trail
+    +schema: dq_failures     # separate BQ dataset: rideshare_dw.dq_failures
