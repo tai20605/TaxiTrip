@@ -17,7 +17,8 @@ The pipeline is designed to:
 ---
 ## Architecture
 
-<img width="1016" height="652" alt="architecture" src="https://github.com/user-attachments/assets/ea22108b-168a-4866-aedc-de7a046e5f3c" />
+<img width="722" height="500" alt="architecture" src="https://github.com/user-attachments/assets/dfbb6fab-a627-41fa-943e-0a9b25dfacc7" />
+
 
 ---
 
